@@ -12,7 +12,7 @@ We came up with the idea during a hack meeting, and have implemented the followi
 | [calc_tcache_idx.c](calc_tcache_idx.c)| |  Demonstrating glibc's tcache index calculation.| | | |
 | [fastbin_dup.c](glibc_2.35/fastbin_dup.c) | <a href="https://wargames.ret2.systems/level/how2heap_fastbin_dup_2.34" title="Debug Technique In Browser">:arrow_forward:</a> | Tricking malloc into returning an already-allocated heap pointer by abusing the fastbin freelist. | latest | | |
 | [fastbin_dup_into_stack.c](glibc_2.35/fastbin_dup_into_stack.c) | <a href="https://wargames.ret2.systems/level/how2heap_fastbin_dup_into_stack_2.23" title="Debug Technique In Browser">:arrow_forward:</a> | Tricking malloc into returning a nearly-arbitrary pointer by abusing the fastbin freelist. | latest | | [9447-search-engine](https://github.com/ctfs/write-ups-2015/tree/master/9447-ctf-2015/exploitation/search-engine), [0ctf 2017-babyheap](http://uaf.io/exploitation/2017/03/19/0ctf-Quals-2017-BabyHeap2017.html) |
-| [fastbin_dup_consolidate.c](glibc_2.35/fastbin_dup_consolidate.c) | <a href="https://wargames.ret2.systems/level/how2heap_fastbin_dup_consolidate_2.23" title="Debug Technique In Browser">:arrow_forward:</a> | Tricking malloc into returning an already-allocated heap pointer by putting a pointer on both fastbin freelist and unsorted bin freelist. | latest | | [Hitcon 2016 SleepyHolder](https://github.com/mehQQ/public_writeup/tree/master/hitcon2016/SleepyHolder) |
+| [fastbin_dup_consolidate.c](glibc_2.35/fastbin_dup_consolidate.c) | <a href="https://wargames.ret2.systems/level/how2heap_fastbin_dup_consolidate_2.23" title="Debug Technique In Browser">:arrow_forward:</a> | Tricking malloc into returning an already-allocated heap pointer by putting a pointer on both fastbin freelist and the top chunk. | latest | | [Hitcon 2016 SleepyHolder](https://github.com/mehQQ/public_writeup/tree/master/hitcon2016/SleepyHolder) |
 | [unsafe_unlink.c](glibc_2.35/unsafe_unlink.c) | <a href="https://wargames.ret2.systems/level/how2heap_unsafe_unlink_2.34" title="Debug Technique In Browser">:arrow_forward:</a> | Exploiting free on a corrupted chunk to get arbitrary write. | latest | | [HITCON CTF 2014-stkof](http://acez.re/ctf-writeup-hitcon-ctf-2014-stkof-or-modern-heap-overflow/), [Insomni'hack 2017-Wheel of Robots](https://gist.github.com/niklasb/074428333b817d2ecb63f7926074427a) |
 | [house_of_spirit.c](glibc_2.35/house_of_spirit.c) | <a href="https://wargames.ret2.systems/level/how2heap_house_of_spirit_2.23" title="Debug Technique In Browser">:arrow_forward:</a> | Frees a fake fastbin chunk to get malloc to return a nearly-arbitrary pointer. | latest | | [hack.lu CTF 2014-OREO](https://github.com/ctfs/write-ups-2014/tree/master/hack-lu-ctf-2014/oreo) |
 | [poison_null_byte.c](glibc_2.35/poison_null_byte.c) | <a href="https://wargames.ret2.systems/level/how2heap_poison_null_byte_2.34" title="Debug Technique In Browser">:arrow_forward:</a> | Exploiting a single null byte overflow. | latest | | [PlaidCTF 2015-plaiddb](https://github.com/ctfs/write-ups-2015/tree/master/plaidctf-2015/pwnable/plaiddb), [BalsnCTF 2019-PlainNote](https://gist.github.com/st424204/6b5c007cfa2b62ed3fd2ef30f6533e94?fbclid=IwAR3n0h1WeL21MY6cQ_C51wbXimdts53G3FklVIHw2iQSgtgGo0kR3Lt-1Ek)|
@@ -61,34 +61,40 @@ Try to inline the whole technique in a single `.c` -- it's a lot easier to learn
 ```shell
 git clone https://github.com/shellphish/how2heap
 cd how2heap
-make clean all
-./glibc_run.sh 2.30 ./malloc_playground -u -r
+make clean base
+./malloc_playground
 ```
+Notice that this will link the binaries with your system libc. If you want to play with other libc versions. Please refer to `Complete Setup`.
 
 ## Complete Setup
 
-This creates a Docker-based environment to get started with `pwndbg` and `pwntools`.
+You will encounter symbol versioning issues (see [this](https://github.com/shellphish/how2heap/issues/169)) if you try to `LD_PRELOAD` libcs to a binary that's compiled on your host machine.
+We have two ways to bypass it.
 
+### Method 1: link against older libc
+This one tells linker to link the target binary with the target libc.
 ```shell
-## on your host
 git clone https://github.com/shellphish/how2heap
 cd how2heap
-git clone https://github.com/pwndbg/pwndbg
-docker build -t how2heap-pwndbg pwndbg 
-docker run -it --rm --cap-add=SYS_PTRACE --security-opt seccomp=unconfined -v $(pwd):/io:Z --name how2heap how2heap-pwndbg
+H2H_USE_SYSTEM_LIBC=N make v2.23
+```
+This will link all the binaries against corresponding libcs. What's better is that it comes with debug symbols. Now you can play with any libc versions on your host machine.
+In this example, it will compile all glibc-2.23 binaries and link them with libc-2.23. You can change the number to play with other libc versions.
 
-## inside the docker container
-apt update
-apt -y install patchelf zstd python-is-python3 wget
-python -m pip install pwntools
-export PATH="$PATH:$(python -c 'import site; print(site.getsitepackages()[0])')/bin"
-cd /io
-git config --global --add safe.directory "*"
-make clean all
-./glibc_run.sh 2.30 ./malloc_playground -u -r
+### Method 2: use docker
+This uses Docker-based approach to complie binaries inside an old ubuntu container so it is runnable with the target libc version.
 
-## debugging
-# check modified RUNPATH and interpreter
+```shell
+git clone https://github.com/shellphish/how2heap
+cd how2heap
+
+# the next command will prepare the target binary so it runs with
+# the expected libc version
+make base
+./glibc_run.sh 2.30 ./malloc_playground -d -p
+
+# now you can play with the binary with glibc-2.30
+# and even debug it with the correct symbols
 readelf -d -W malloc_playground | grep RUNPATH # or use checksec
 readelf -l -W malloc_playground | grep interpreter
 gdb -q -ex "start" ./malloc_playground
@@ -152,7 +158,8 @@ Some good heap exploitation resources, roughly in order of their publication, ar
 - OS X heap exploitation techniques (http://phrack.org/issues/63/5.html)
 - Exploiting The Wilderness (http://seclists.org/vuln-dev/2004/Feb/25)
 - Advanced Doug lea's malloc exploits (http://phrack.org/issues/61/6.html)
-- GDB Enhanced Features (GEF) Heap Exploration Tools (https://gef.readthedocs.io/en/master/commands/heap/)
+- GDB Enhanced Features (GEF) Heap Exploration Tools (https://hugsy.github.io/gef/commands/heap/)
+- pwndbg Heap Commands (https://browserpwndbg.readthedocs.io/en/docs/commands/heap/heap/)
 - Painless intro to the Linux userland heap (https://sensepost.com/blog/2017/painless-intro-to-the-linux-userland-heap/)
 - Heap exploitation techniques that work on glibc-2.31 (https://github.com/StarCross-Tech/heap_exploit_2.31)
 - Overview of GLIBC heap exploitation techniques (https://0x434b.dev/overview-of-glibc-heap-exploitation-techniques/)
